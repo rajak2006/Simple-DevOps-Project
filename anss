@@ -1,3 +1,61 @@
+Excellent question 👍 — this is a **very important production safety point**.
+
+You are 100% right to worry about this line:
+
+```yaml
+oc wait --for=condition=Ready pod --all -n {{ namespace }} --timeout=600s
+```
+
+### ❌ What it does now
+
+This waits for **ALL pods in the namespace**, not just MicroStrategy ones.
+
+So yes — **it is looking at every pod in the namespace**, not your selectors.
+
+That is dangerous in production.
+
+---
+
+## ✅ Fix: Wait ONLY for pods matching your selectors
+
+Replace your `wait.yml` with this:
+
+```yaml
+- name: Wait for selected component pods only
+  shell: |
+    for sel in {% raw %}{{{% endraw %} mstr_components | map(attribute='selector') | join(' ') {% raw %}}}{% endraw %}; do
+      pods=$(oc get pods -n {{ namespace }} | egrep -i "$sel" | awk '{print $1}')
+      for p in $pods; do
+        echo "Waiting for $p"
+        oc wait --for=condition=Ready pod/$p -n {{ namespace }} --timeout=600s
+      done
+    done
+```
+
+---
+
+## 🔹 Same fix for validate.yml
+
+```yaml
+- name: Fail if unhealthy pods exist (only selected)
+  shell: |
+    oc get pods -n {{ namespace }} | egrep -i "$(printf "%s|" {% raw %}{{{% endraw %} mstr_components | map(attribute='selector') | join(' ') {% raw %}}}{% endraw %})" | egrep -i "CrashLoop|Error|ImagePull"
+  register: badpods
+  failed_when: badpods.stdout != ""
+```
+
+---
+
+## 🔹 Summary
+
+| Step     | Old Behavior            | New Behavior     |
+| -------- | ----------------------- | ---------------- |
+| Wait     | All pods in namespace ❌ | Only MSTR pods ✅ |
+| Validate | All pods ❌              | Only MSTR pods ✅ |
+
+Now your playbook is **safe, scoped, and production-grade**.
+
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 Perfect 👍 — this is a **real production audit banner**.
 Let’s wire it properly into your end-to-end playbook.
 
